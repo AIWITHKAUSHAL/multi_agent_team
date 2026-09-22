@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import json
+import os
+from abc import ABC, abstractmethod
+from typing import TypeVar
+
+from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class LLMClient(ABC):
+    @abstractmethod
+    def structured(self, *, system: str, prompt: str, schema: type[T]) -> T:
+        """Return a response validated against schema."""
+
+
+class GeminiClient(LLMClient):
+    def __init__(self, api_key: str | None = None, model: str | None = None):
+        from google import genai
+
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        resolved_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        self.client = genai.Client(api_key=resolved_key)
+
+    def structured(self, *, system: str, prompt: str, schema: type[T]) -> T:
+        from google.genai import types
+
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.2,
+            ),
+        )
+        if getattr(response, "parsed", None) is not None:
+            parsed = response.parsed
+            return parsed if isinstance(parsed, schema) else schema.model_validate(parsed)
+        return schema.model_validate_json(response.text)
+
+
+class DemoClient(LLMClient):
+    """Deterministic local provider used for evaluation and API-key-free demos."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def structured(self, *, system: str, prompt: str, schema: type[T]) -> T:
+        self.calls += 1
+        fields = schema.model_fields
+        if "next_agent" in fields:
+            state = json.loads(prompt.split("STATE:\n", 1)[1])
+            if not state["research"]:
+                data = {"next_agent": "research", "reason": "Evidence is missing", "instruction": "Gather requirements, facts, and constraints."}
+            elif not state["solution"] or (not state["approved"] and state["review"]):
+                data = {"next_agent": "developer", "reason": "A solution or revision is needed", "instruction": "Build or revise using research and review feedback."}
+            elif not state["review"]:
+                data = {"next_agent": "reviewer", "reason": "The solution needs independent quality review", "instruction": "Check completeness, correctness, and risks."}
+            elif state["approved"] and not state["final_report"]:
+                data = {"next_agent": "report", "reason": "Approved work is ready for synthesis", "instruction": "Produce the final deliverable."}
+            else:
+                data = {"next_agent": "finish", "reason": "The final report is complete", "instruction": ""}
+            return schema.model_validate(data)
+
+        role = system.split("ROLE:", 1)[-1].splitlines()[0].strip()
+        task = prompt.split("TASK:\n", 1)[-1].split("\n\n", 1)[0]
+        if role == "Research Agent":
+            artifact = f"Research brief for: {task}\n- Define audience and success criteria.\n- Validate assumptions and constraints.\n- Prefer testable, cited evidence in production."
+            data = {"summary": "Collected requirements and supporting considerations.", "artifact": artifact}
+        elif role == "Developer Agent":
+            artifact = f"Proposed solution for: {task}\n1. Use the research brief as requirements.\n2. Implement a clear, testable deliverable.\n3. Address every reviewer concern before release."
+            data = {"summary": "Created a solution grounded in the shared research.", "artifact": artifact}
+        elif role == "Reviewer Agent":
+            data = {"summary": "The solution covers the task and is internally consistent.", "artifact": "APPROVED\nChecks: requirements, clarity, feasibility, and traceability passed.", "metadata": {"approved": True}}
+        else:
+            artifact = f"# Final Report\n\n## Objective\n{task}\n\n## Evidence\nResearch and solution artifacts were reviewed.\n\n## Recommendation\nProceed with the approved solution recorded in shared state."
+            data = {"summary": "Synthesized the approved artifacts into a final report.", "artifact": artifact}
+        return schema.model_validate(data)
