@@ -2,11 +2,19 @@
 
 ## 1. Introduce the goal (30 seconds)
 
-“This project coordinates five specialized agents to complete one larger task. It uses Gemini 3.5 Flash-Lite, dynamic supervisor routing, and persistent shared state.” Show the README requirements table.
+“This project coordinates one Supervisor Agent and four specialist agents to
+complete one larger task. It uses Gemini 3.5 Flash-Lite, dynamic supervisor
+routing, and persistent shared state.” Show the README introduction and feature
+list.
 
 ## 2. Explain the architecture (60–90 seconds)
 
-Show `docs/architecture.svg`. Explain that the user task enters the Supervisor, which chooses only one next agent. Every agent reads and updates the central `SharedState`. Point out the rejection arrow: a Reviewer can cause another Developer pass, so this is not merely five sequential calls.
+Start with `docs/architecture.svg`. Explain that the user task enters the
+Supervisor, which chooses only one next agent. Every specialist reads the
+central `SharedState`, and the workflow applies each result to that state. Point
+out the rejection arrow: a Reviewer can cause another Developer pass, so this
+is not merely a fixed sequence. Then show `docs/app_flow.png` for the numbered
+file-to-file call chain and state-update timeline.
 
 ## 3. Connect diagram to code (2 minutes)
 
@@ -18,15 +26,32 @@ Show `docs/architecture.svg`. Explain that the user task enters the Supervisor, 
 
 ## 4. Execute a complete task (2 minutes)
 
+Choose either the web interface or CLI for the main demonstration.
+
+Streamlit option:
+
+```powershell
+streamlit run streamlit_app.py
+```
+
+Enter the task, run the workflow, narrate the live routing events, and open the
+Final report, Research, Solution, Review, and State JSON tabs.
+
+CLI option:
+
 Run:
 
 ```powershell
 multi-agent "Create a practical plan to reduce food waste in a university cafeteria"
 ```
 
-Narrate each console route. Open `run_output/state.json` and show that downstream agents received upstream artifacts. Open `execution_trace.md` and `final_report.md`.
+Narrate each console route. Open `run_output/state.json` and show that downstream
+agents received upstream artifacts. Open `execution_trace.md` and
+`final_report.md`.
 
-If you do not want to spend API quota during rehearsal, add `--demo`. Use the real Gemini run in the submitted recording.
+If you do not want to spend API quota during rehearsal, add `--demo` to the CLI
+or enable **Demo mode (offline)** in Streamlit. Use the real Gemini mode in the
+submitted recording when required.
 
 ## 5. Demonstrate dynamic revision (45 seconds)
 

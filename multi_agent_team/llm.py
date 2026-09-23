@@ -1,3 +1,10 @@
+"""Define structured LLM providers used by supervisors and specialists.
+
+The abstract interface keeps workflow code independent of a particular model.
+``GeminiClient`` performs real Gemini requests, while ``DemoClient`` provides
+predictable local responses for tests and API-key-free demonstrations.
+"""
+
 from __future__ import annotations
 
 import json
@@ -11,13 +18,37 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMClient(ABC):
+    """Interface for model providers that return Pydantic-validated data."""
+
     @abstractmethod
     def structured(self, *, system: str, prompt: str, schema: type[T]) -> T:
-        """Return a response validated against schema."""
+        """Generate a response and validate it against ``schema``.
+
+        Args:
+            system: High-level role, behavior, and response instructions.
+            prompt: Task-specific input sent to the model.
+            schema: Pydantic model class describing the required output shape.
+
+        Returns:
+            An instance of ``schema`` containing the validated model response.
+        """
 
 
 class GeminiClient(LLMClient):
+    """Production provider that requests structured output from Gemini."""
+
     def __init__(self, api_key: str | None = None, model: str | None = None):
+        """Configure the Gemini SDK client and model.
+
+        Explicit arguments take precedence over environment variables. The API
+        key falls back to ``GOOGLE_API_KEY`` and then ``GEMINI_API_KEY``; the
+        model falls back to ``GEMINI_MODEL`` and finally the project default.
+
+        Args:
+            api_key: Optional Gemini API key override.
+            model: Optional Gemini model-name override.
+        """
+
         from google import genai
 
         self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
@@ -25,6 +56,21 @@ class GeminiClient(LLMClient):
         self.client = genai.Client(api_key=resolved_key)
 
     def structured(self, *, system: str, prompt: str, schema: type[T]) -> T:
+        """Request JSON from Gemini and return it as a validated model.
+
+        Gemini is instructed to conform to the supplied Pydantic schema. The
+        SDK's parsed response is used when available; otherwise the raw response
+        text is parsed and validated locally.
+
+        Args:
+            system: System instruction controlling model behavior.
+            prompt: User content for the current model call.
+            schema: Pydantic class required for the response.
+
+        Returns:
+            A validated instance of ``schema``.
+        """
+
         from google.genai import types
 
         response = self.client.models.generate_content(
@@ -47,9 +93,27 @@ class DemoClient(LLMClient):
     """Deterministic local provider used for evaluation and API-key-free demos."""
 
     def __init__(self):
+        """Initialize the counter used to track local model calls."""
+
         self.calls = 0
 
     def structured(self, *, system: str, prompt: str, schema: type[T]) -> T:
+        """Return deterministic routing decisions or specialist artifacts.
+
+        Supervisor calls are detected from the requested schema and routed by
+        inspecting serialized shared state. Specialist calls are detected from
+        the role in the system prompt. Every generated dictionary is validated
+        through ``schema`` to mirror the production provider's contract.
+
+        Args:
+            system: Role instructions used to identify specialist calls.
+            prompt: Prompt containing the task or serialized workflow state.
+            schema: Pydantic class used to validate the local response.
+
+        Returns:
+            A deterministic, validated instance of ``schema``.
+        """
+
         self.calls += 1
         fields = schema.model_fields
         if "next_agent" in fields:

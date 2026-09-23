@@ -1,3 +1,10 @@
+"""Provide the ``multi-agent`` command-line entry point.
+
+The command loads environment variables, selects either Gemini or the offline
+demo provider, runs a workflow, prints progress, and saves the resulting state,
+report, and execution trace to disk.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +19,13 @@ from .workflow import MultiAgentWorkflow
 
 
 def main() -> None:
+    """Parse command-line options and run one complete multi-agent workflow.
+
+    A Gemini API key is required unless ``--demo`` is supplied. Progress events
+    are rendered as they occur, and successful results are persisted under the
+    requested output directory before the final report is printed.
+    """
+
     load_dotenv()
     parser = argparse.ArgumentParser(description="Run the Gemini multi-agent team")
     parser.add_argument("task", nargs="?", default="Create a practical plan to reduce food waste in a university cafeteria.")
@@ -26,6 +40,8 @@ def main() -> None:
     llm = DemoClient() if args.demo else GeminiClient()
 
     def show(event):
+        """Render a single workflow event to the terminal."""
+
         console.print(f"[bold cyan]Step {event.step} · {event.agent}[/bold cyan]  {event.summary}")
 
     state = MultiAgentWorkflow(llm, max_steps=args.max_steps, on_event=show).run(args.task)
